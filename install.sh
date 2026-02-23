@@ -130,9 +130,10 @@ set_env_default "AUTO_FIX_OPENCLAW_CAPTURE_CMD" "$INSTALL_DIR/scripts/capture-op
 set_env_default "AUTO_FIX_OPENCLAW_CAPTURE_ON_HEALTHY" "1"
 set_env_default "AUTO_FIX_OPENCLAW_CAPTURE_INTERVAL_SECS" "21600"
 set_env_default "AUTO_FIX_OPENCLAW_REPAIR_PROVIDER" "codex"
-set_env_default "AUTO_FIX_OPENCLAW_REPAIR_PROVIDER_FALLBACK" "cloudcode"
+set_env_default "AUTO_FIX_OPENCLAW_REPAIR_PROVIDER_FALLBACK" "claudecode"
 set_env_default "AUTO_FIX_OPENCLAW_CODEX_BIN" "$(command -v codex || true)"
-set_env_line "AUTO_FIX_OPENCLAW_CLOUD_CODE_ARGS_TEMPLATE" "exec --full-auto --cwd {CWD} --prompt-file {PROMPT_FILE} --model {MODEL}"
+set_env_default "AUTO_FIX_OPENCLAW_CLAUDE_CODE_BIN" "$(command -v claude || command -v claude-code || true)"
+set_env_line "AUTO_FIX_OPENCLAW_CLAUDE_CODE_ARGS_TEMPLATE" "exec --full-auto --cwd {CWD} --prompt-file {PROMPT_FILE} --model {MODEL}"
 
 chmod 600 "$ENV_FILE"
 

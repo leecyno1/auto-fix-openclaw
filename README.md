@@ -10,7 +10,7 @@ Production-grade self-heal framework for OpenClaw gateway.
 - Captures local code patches automatically (`baseline + overlay + patch-manifest.json`)
 - Supports AI-assisted repair backends:
   - Codex (`codex` CLI)
-  - Cloud Code (`cloud-code` adapter)
+  - Claude Code (`claude` adapter)
 - Sends alert/recovery notifications through OpenClaw channels (Feishu, Telegram, Discord, etc.)
 - Emits Prometheus text metrics (`metrics.prom`)
 
@@ -21,7 +21,7 @@ Production-grade self-heal framework for OpenClaw gateway.
 - `scripts/reconcile-openclaw-custom.sh` - replay local customizations
 - `scripts/capture-openclaw-custom.sh` - capture local code changes
 - `scripts/providers/codex-repair.sh` - Codex repair adapter
-- `scripts/providers/cloudcode-repair.sh` - Cloud Code repair adapter
+- `scripts/providers/claudecode-repair.sh` - Claude Code repair adapter
 - `deploy/systemd-user/*` - Linux user services/timer
 - `deploy/launchd/com.openclaw.autofix.plist` - macOS launchd agent
 - `install.sh` / `uninstall.sh` - install lifecycle scripts
@@ -60,7 +60,7 @@ Set in env:
 
 ```bash
 AUTO_FIX_OPENCLAW_REPAIR_PROVIDER=codex
-AUTO_FIX_OPENCLAW_REPAIR_PROVIDER_FALLBACK=cloudcode
+AUTO_FIX_OPENCLAW_REPAIR_PROVIDER_FALLBACK=claudecode
 ```
 
 ### Codex
@@ -70,11 +70,11 @@ AUTO_FIX_OPENCLAW_CODEX_BIN=/opt/homebrew/bin/codex
 AUTO_FIX_OPENCLAW_CODEX_MODEL=gpt-5-codex
 ```
 
-### Cloud Code
+### Claude Code
 
 ```bash
-AUTO_FIX_OPENCLAW_CLOUD_CODE_BIN=cloud-code
-AUTO_FIX_OPENCLAW_CLOUD_CODE_ARGS_TEMPLATE='exec --full-auto --cwd "{CWD}" --prompt-file "{PROMPT_FILE}" --model "{MODEL}"'
+AUTO_FIX_OPENCLAW_CLAUDE_CODE_BIN=claude
+AUTO_FIX_OPENCLAW_CLAUDE_CODE_ARGS_TEMPLATE='exec --full-auto --cwd "{CWD}" --prompt-file "{PROMPT_FILE}" --model "{MODEL}"'
 ```
 
 ## Notifications (Feishu/Telegram/Discord)

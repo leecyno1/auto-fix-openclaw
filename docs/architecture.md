@@ -9,7 +9,7 @@
    - `openclaw gateway restart`
    - `openclaw doctor --repair --non-interactive --yes`
    - service manager restart (`systemctl --user` / `launchctl kickstart`)
-5. AI repair provider (`codex` / `cloudcode`) with fallback
+5. AI repair provider (`codex` / `claudecode`) with fallback
 6. Verify and persist artifacts (`result.json`, logs, summaries)
 
 ## Main controls
@@ -23,5 +23,5 @@
 
 - OpenClaw CLI and channel plugins
 - Codex CLI adapter
-- Cloud Code adapter
+- Claude Code adapter
 - systemd (Linux user mode), launchd (macOS user mode)
