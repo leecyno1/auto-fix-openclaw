@@ -68,10 +68,10 @@ CODEX_BIN="${AUTO_FIX_OPENCLAW_CODEX_BIN:-${FIX_MY_CLAW_CODEX_BIN:-$(command -v 
 CODEX_MODEL="${AUTO_FIX_OPENCLAW_CODEX_MODEL:-${FIX_MY_CLAW_CODEX_MODEL:-gpt-5-codex}}"
 CODEX_TIMEOUT_SECS="${AUTO_FIX_OPENCLAW_CODEX_TIMEOUT_SECS:-${FIX_MY_CLAW_CODEX_TIMEOUT_SECS:-240}}"
 
-CLAUDE_CODE_BIN="${AUTO_FIX_OPENCLAW_CLAUDE_CODE_BIN:-${AUTO_FIX_OPENCLAW_CLOUD_CODE_BIN:-$(command -v claude || command -v claude-code || true)}}"
-CLAUDE_CODE_MODEL="${AUTO_FIX_OPENCLAW_CLAUDE_CODE_MODEL:-${AUTO_FIX_OPENCLAW_CLOUD_CODE_MODEL:-}}"
-CLAUDE_CODE_TIMEOUT_SECS="${AUTO_FIX_OPENCLAW_CLAUDE_CODE_TIMEOUT_SECS:-${AUTO_FIX_OPENCLAW_CLOUD_CODE_TIMEOUT_SECS:-300}}"
-CLAUDE_CODE_ARGS_TEMPLATE="${AUTO_FIX_OPENCLAW_CLAUDE_CODE_ARGS_TEMPLATE:-${AUTO_FIX_OPENCLAW_CLOUD_CODE_ARGS_TEMPLATE:-exec --full-auto --cwd \"$HOME\" --prompt-file \"{PROMPT_FILE}\"}}"
+CLAUDE_CODE_BIN="${AUTO_FIX_OPENCLAW_CLAUDE_CODE_BIN:-$(command -v claude || command -v claude-code || true)}"
+CLAUDE_CODE_MODEL="${AUTO_FIX_OPENCLAW_CLAUDE_CODE_MODEL:-}"
+CLAUDE_CODE_TIMEOUT_SECS="${AUTO_FIX_OPENCLAW_CLAUDE_CODE_TIMEOUT_SECS:-300}"
+CLAUDE_CODE_ARGS_TEMPLATE="${AUTO_FIX_OPENCLAW_CLAUDE_CODE_ARGS_TEMPLATE:-exec --full-auto --cwd \"$HOME\" --prompt-file \"{PROMPT_FILE}\"}"
 
 DRY_RUN="${AUTO_FIX_OPENCLAW_DRY_RUN:-0}"
 
@@ -570,7 +570,7 @@ provider_script_path() {
     codex)
       echo "$PROJECT_ROOT/scripts/providers/codex-repair.sh"
       ;;
-    claudecode|cloudcode)
+    claudecode)
       echo "$PROJECT_ROOT/scripts/providers/claudecode-repair.sh"
       ;;
     *)
@@ -607,11 +607,6 @@ run_ai_repair_provider() {
   export AUTO_FIX_OPENCLAW_CLAUDE_CODE_MODEL="$CLAUDE_CODE_MODEL"
   export AUTO_FIX_OPENCLAW_CLAUDE_CODE_TIMEOUT_SECS="$CLAUDE_CODE_TIMEOUT_SECS"
   export AUTO_FIX_OPENCLAW_CLAUDE_CODE_ARGS_TEMPLATE="$CLAUDE_CODE_ARGS_TEMPLATE"
-  # Backward compatibility for previous variable naming.
-  export AUTO_FIX_OPENCLAW_CLOUD_CODE_BIN="$CLAUDE_CODE_BIN"
-  export AUTO_FIX_OPENCLAW_CLOUD_CODE_MODEL="$CLAUDE_CODE_MODEL"
-  export AUTO_FIX_OPENCLAW_CLOUD_CODE_TIMEOUT_SECS="$CLAUDE_CODE_TIMEOUT_SECS"
-  export AUTO_FIX_OPENCLAW_CLOUD_CODE_ARGS_TEMPLATE="$CLAUDE_CODE_ARGS_TEMPLATE"
 
   run_capture "repair-ai-${provider}" run_with_timeout "$REPAIR_PROVIDER_TIMEOUT_SECS" "$script" || return 1
 
@@ -887,6 +882,37 @@ doctor_dry_run() {
   DRY_RUN="$old_dry"
 }
 
+repair_now() {
+  local provider="${1:-$REPAIR_PROVIDER}"
+  local source_name="${2:-manual-repair}"
+  provider="${provider,,}"
+  [[ -n "$provider" ]] || die "repair provider is empty"
+
+  ensure_dirs
+  acquire_lock
+  load_state
+  roll_daily_counter
+  set_attempt_path "$source_name"
+  capture_runtime_context
+
+  mark_repair_attempt
+  if run_ai_repair_provider "$provider"; then
+    record_success
+    write_attempt_result "$source_name" "repaired-by-ai-direct"
+    save_state
+    send_notify "recovered" "${APP_NAME}: direct repair succeeded by ${LAST_AI_PROVIDER} (${LAST_ACTION_SUMMARY})"
+    log "INFO" "Direct repair succeeded by ${provider}."
+    return 0
+  fi
+
+  record_failure
+  write_attempt_result "$source_name" "direct-repair-failed"
+  save_state
+  send_notify "failed" "${APP_NAME}: direct repair failed by ${provider} (${LAST_ACTION_SUMMARY})"
+  log "ERROR" "Direct repair failed by ${provider}."
+  return 1
+}
+
 usage() {
   cat <<'EOF_USAGE'
 auto-fix-openclaw - production-grade OpenClaw gateway auto-heal framework
@@ -896,6 +922,7 @@ Usage:
   auto-fix-openclaw down                       Stop daemon mode
   auto-fix-openclaw status                     Show daemon/state snapshot
   auto-fix-openclaw run-once [--source X]      Run one health-check + repair cycle
+  auto-fix-openclaw repair-now [--provider P]   Run AI repair immediately (codex|claudecode)
   auto-fix-openclaw check                      Health-check only (no repair)
   auto-fix-openclaw doctor-dry-run             Collect diagnostics without mutating services
   auto-fix-openclaw metrics                    Print Prometheus text metrics
@@ -948,6 +975,27 @@ case "$cmd" in
       source_name="$2"
     fi
     run_once "$source_name"
+    ;;
+  repair-now)
+    shift || true
+    provider="$REPAIR_PROVIDER"
+    source_name="manual-repair"
+    while [[ $# -gt 0 ]]; do
+      case "$1" in
+        --provider)
+          provider="${2:-}"
+          shift 2
+          ;;
+        --source)
+          source_name="${2:-manual-repair}"
+          shift 2
+          ;;
+        *)
+          die "Unknown argument for repair-now: $1"
+          ;;
+      esac
+    done
+    repair_now "$provider" "$source_name"
     ;;
   check)
     ensure_dirs

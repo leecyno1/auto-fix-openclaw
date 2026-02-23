@@ -13,6 +13,8 @@
 
 - `auto-fix-openclaw check`
 - `auto-fix-openclaw run-once --source manual-check`
+- `auto-fix-openclaw repair-now --provider codex`
+- `auto-fix-openclaw repair-now --provider claudecode`
 - inspect latest attempt in `~/.auto-fix-openclaw/attempts/`
 
 ## If circuit breaker opens

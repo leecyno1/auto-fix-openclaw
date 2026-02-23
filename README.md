@@ -48,6 +48,8 @@ Installed paths (default):
 ```bash
 auto-fix-openclaw status
 auto-fix-openclaw run-once --source manual
+auto-fix-openclaw repair-now --provider codex
+auto-fix-openclaw repair-now --provider claudecode
 auto-fix-openclaw check
 auto-fix-openclaw metrics
 auto-fix-openclaw doctor-dry-run
