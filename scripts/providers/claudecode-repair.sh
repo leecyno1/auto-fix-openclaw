@@ -61,5 +61,19 @@ if command -v timeout >/dev/null 2>&1; then
 elif command -v gtimeout >/dev/null 2>&1; then
   gtimeout "$CLAUDE_CODE_TIMEOUT_SECS" /bin/bash -lc "$cmd" >"$output_file" 2>&1
 else
-  /bin/bash -lc "$cmd" >"$output_file" 2>&1
+  python3 - "$CLAUDE_CODE_TIMEOUT_SECS" "$cmd" "$output_file" <<'PY'
+import pathlib
+import subprocess
+import sys
+
+timeout = int(sys.argv[1])
+cmd = sys.argv[2]
+output_file = pathlib.Path(sys.argv[3])
+with output_file.open("w", encoding="utf-8") as fp:
+    try:
+        proc = subprocess.run(["/bin/bash", "-lc", cmd], stdout=fp, stderr=subprocess.STDOUT, timeout=timeout)
+        sys.exit(proc.returncode)
+    except subprocess.TimeoutExpired:
+        sys.exit(124)
+PY
 fi

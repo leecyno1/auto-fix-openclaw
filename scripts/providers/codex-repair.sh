@@ -48,7 +48,7 @@ if command -v timeout >/dev/null 2>&1; then
   timeout "$CODEX_TIMEOUT_SECS" "$CODEX_BIN" exec \
     --full-auto \
     --sandbox workspace-write \
-    --ask-for-approval never \
+    --skip-git-repo-check \
     -m "$CODEX_MODEL" \
     -C "$HOME" \
     "$(cat "$prompt_file")" >"$output_file" 2>&1
@@ -56,16 +56,42 @@ elif command -v gtimeout >/dev/null 2>&1; then
   gtimeout "$CODEX_TIMEOUT_SECS" "$CODEX_BIN" exec \
     --full-auto \
     --sandbox workspace-write \
-    --ask-for-approval never \
+    --skip-git-repo-check \
     -m "$CODEX_MODEL" \
     -C "$HOME" \
     "$(cat "$prompt_file")" >"$output_file" 2>&1
 else
-  "$CODEX_BIN" exec \
-    --full-auto \
-    --sandbox workspace-write \
-    --ask-for-approval never \
-    -m "$CODEX_MODEL" \
-    -C "$HOME" \
-    "$(cat "$prompt_file")" >"$output_file" 2>&1
+  python3 - "$CODEX_TIMEOUT_SECS" "$CODEX_BIN" "$CODEX_MODEL" "$HOME" "$prompt_file" "$output_file" <<'PY'
+import pathlib
+import subprocess
+import sys
+
+timeout = int(sys.argv[1])
+codex_bin = sys.argv[2]
+model = sys.argv[3]
+cwd = sys.argv[4]
+prompt_file = pathlib.Path(sys.argv[5])
+output_file = pathlib.Path(sys.argv[6])
+prompt = prompt_file.read_text(encoding="utf-8", errors="ignore")
+
+cmd = [
+    codex_bin,
+    "exec",
+    "--full-auto",
+    "--sandbox",
+    "workspace-write",
+    "--skip-git-repo-check",
+    "-m",
+    model,
+    "-C",
+    cwd,
+    prompt,
+]
+with output_file.open("w", encoding="utf-8") as fp:
+    try:
+        proc = subprocess.run(cmd, stdout=fp, stderr=subprocess.STDOUT, timeout=timeout)
+        sys.exit(proc.returncode)
+    except subprocess.TimeoutExpired:
+        sys.exit(124)
+PY
 fi

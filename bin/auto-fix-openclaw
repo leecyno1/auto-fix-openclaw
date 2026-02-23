@@ -121,7 +121,18 @@ run_with_timeout() {
     gtimeout "$seconds" "$@"
     return $?
   fi
-  "$@"
+  python3 - "$seconds" "$@" <<'PY'
+import subprocess
+import sys
+
+timeout = int(sys.argv[1])
+cmd = sys.argv[2:]
+try:
+    proc = subprocess.run(cmd, timeout=timeout)
+    sys.exit(proc.returncode)
+except subprocess.TimeoutExpired:
+    sys.exit(124)
+PY
 }
 
 ensure_dirs() {
@@ -885,6 +896,7 @@ doctor_dry_run() {
 repair_now() {
   local provider="${1:-$REPAIR_PROVIDER}"
   local source_name="${2:-manual-repair}"
+  local force_run="${3:-0}"
   provider="${provider,,}"
   [[ -n "$provider" ]] || die "repair provider is empty"
 
@@ -894,6 +906,15 @@ repair_now() {
   roll_daily_counter
   set_attempt_path "$source_name"
   capture_runtime_context
+
+  if [[ "$force_run" != "1" ]] && probe_gateway "direct-precheck"; then
+    LAST_ACTION_SUMMARY="direct-repair-skip-healthy"
+    record_success
+    write_attempt_result "$source_name" "direct-skip-healthy"
+    save_state
+    log "INFO" "Gateway healthy; skip direct AI repair. Use --force to run anyway."
+    return 0
+  fi
 
   mark_repair_attempt
   if run_ai_repair_provider "$provider"; then
@@ -950,6 +971,11 @@ Environment knobs (new prefix):
   AUTO_FIX_OPENCLAW_REPAIR_PROVIDER_FALLBACK=claudecode|codex|disabled
   AUTO_FIX_OPENCLAW_SAFE_PATHS
 
+repair-now options:
+  --provider codex|claudecode
+  --source <tag>
+  --force      Run provider even when gateway is currently healthy
+
 Legacy FIX_MY_CLAW_* variables are still accepted.
 EOF_USAGE
 }
@@ -980,6 +1006,7 @@ case "$cmd" in
     shift || true
     provider="$REPAIR_PROVIDER"
     source_name="manual-repair"
+    force_run=0
     while [[ $# -gt 0 ]]; do
       case "$1" in
         --provider)
@@ -990,12 +1017,16 @@ case "$cmd" in
           source_name="${2:-manual-repair}"
           shift 2
           ;;
+        --force)
+          force_run=1
+          shift
+          ;;
         *)
           die "Unknown argument for repair-now: $1"
           ;;
       esac
     done
-    repair_now "$provider" "$source_name"
+    repair_now "$provider" "$source_name" "$force_run"
     ;;
   check)
     ensure_dirs

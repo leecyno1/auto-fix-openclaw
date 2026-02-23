@@ -16,3 +16,5 @@
 - Remove deprecated `cloudcode` provider naming and wrapper script
 - Keep only `codex` and `claudecode` provider names
 - Add `repair-now --provider codex|claudecode` for direct CLI repair trigger
+- Fix Codex CLI compatibility (`--ask-for-approval` removed, add `--skip-git-repo-check`)
+- Skip direct AI repair when gateway is already healthy (use `--force` to override)
