@@ -1,0 +1,11 @@
+# Runtime artifacts
+*.log
+*.exit
+
+# Local state
+.env
+.DS_Store
+
+# Python cache
+__pycache__/
+*.pyc

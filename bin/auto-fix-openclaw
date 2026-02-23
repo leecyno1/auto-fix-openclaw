@@ -1,0 +1,1001 @@
+#!/usr/bin/env bash
+set -Eeuo pipefail
+
+VERSION="2.0.0"
+APP_NAME="auto-fix-openclaw"
+SELF_PATH="$(python3 -c 'import os,sys; print(os.path.realpath(sys.argv[1]))' "$0")"
+SELF_DIR="$(cd "$(dirname "$SELF_PATH")" && pwd)"
+PROJECT_ROOT="$(cd "$SELF_DIR/.." && pwd)"
+
+# Load runtime overrides from env file before defaults are resolved.
+AUTO_FIX_OPENCLAW_ENV_FILE="${AUTO_FIX_OPENCLAW_ENV_FILE:-${FIX_MY_CLAW_ENV_FILE:-$HOME/.config/openclaw/auto-fix-openclaw.env}}"
+if [[ -f "$AUTO_FIX_OPENCLAW_ENV_FILE" ]]; then
+  set -a
+  # shellcheck disable=SC1090
+  source "$AUTO_FIX_OPENCLAW_ENV_FILE"
+  set +a
+fi
+
+FIX_HOME="${AUTO_FIX_OPENCLAW_HOME:-${FIX_MY_CLAW_HOME:-$HOME/.auto-fix-openclaw}}"
+ATTEMPTS_DIR="$FIX_HOME/attempts"
+STATE_FILE="$FIX_HOME/state.env"
+EVENT_LOG="$FIX_HOME/events.log"
+METRICS_FILE="${AUTO_FIX_OPENCLAW_METRICS_FILE:-$FIX_HOME/metrics.prom}"
+RUNTIME_DIR="${XDG_RUNTIME_DIR:-$FIX_HOME/run}"
+LOCK_DIR="$RUNTIME_DIR/lock"
+PID_FILE="$RUNTIME_DIR/daemon.pid"
+VERSION_TRACK_FILE="${AUTO_FIX_OPENCLAW_VERSION_TRACK_FILE:-${FIX_MY_CLAW_VERSION_TRACK_FILE:-$FIX_HOME/openclaw-version.txt}}"
+
+OPENCLAW_BIN="${OPENCLAW_BIN:-$(command -v openclaw || true)}"
+OPENCLAW_GATEWAY_UNIT="${OPENCLAW_GATEWAY_UNIT:-openclaw-gateway.service}"
+OPENCLAW_CONFIG_PATH="${OPENCLAW_CONFIG_PATH:-$HOME/.openclaw/openclaw.json}"
+
+CHECK_INTERVAL_SECS="${AUTO_FIX_OPENCLAW_CHECK_INTERVAL_SECS:-${FIX_MY_CLAW_CHECK_INTERVAL_SECS:-60}}"
+REPAIR_COOLDOWN_SECS="${AUTO_FIX_OPENCLAW_REPAIR_COOLDOWN_SECS:-${FIX_MY_CLAW_REPAIR_COOLDOWN_SECS:-300}}"
+MAX_DAILY_REPAIRS="${AUTO_FIX_OPENCLAW_MAX_DAILY_REPAIRS:-${FIX_MY_CLAW_MAX_DAILY_REPAIRS:-24}}"
+MAX_CONSECUTIVE_FAILURES="${AUTO_FIX_OPENCLAW_MAX_CONSECUTIVE_FAILURES:-${FIX_MY_CLAW_MAX_CONSECUTIVE_FAILURES:-6}}"
+
+SAFE_PATHS="${AUTO_FIX_OPENCLAW_SAFE_PATHS:-${FIX_MY_CLAW_SAFE_PATHS:-$HOME/.openclaw:$HOME/clawd}}"
+
+RECONCILE_CMD="${AUTO_FIX_OPENCLAW_RECONCILE_CMD:-${FIX_MY_CLAW_RECONCILE_CMD:-}}"
+RECONCILE_TIMEOUT_SECS="${AUTO_FIX_OPENCLAW_RECONCILE_TIMEOUT_SECS:-${FIX_MY_CLAW_RECONCILE_TIMEOUT_SECS:-420}}"
+RECONCILE_ON_VERSION_CHANGE="${AUTO_FIX_OPENCLAW_RECONCILE_ON_VERSION_CHANGE:-${FIX_MY_CLAW_RECONCILE_ON_VERSION_CHANGE:-1}}"
+RECONCILE_ON_UNHEALTHY="${AUTO_FIX_OPENCLAW_RECONCILE_ON_UNHEALTHY:-${FIX_MY_CLAW_RECONCILE_ON_UNHEALTHY:-1}}"
+
+CAPTURE_CMD="${AUTO_FIX_OPENCLAW_CAPTURE_CMD:-${FIX_MY_CLAW_CAPTURE_CMD:-}}"
+CAPTURE_ON_HEALTHY="${AUTO_FIX_OPENCLAW_CAPTURE_ON_HEALTHY:-${FIX_MY_CLAW_CAPTURE_ON_HEALTHY:-0}}"
+CAPTURE_INTERVAL_SECS="${AUTO_FIX_OPENCLAW_CAPTURE_INTERVAL_SECS:-${FIX_MY_CLAW_CAPTURE_INTERVAL_SECS:-21600}}"
+CAPTURE_TIMEOUT_SECS="${AUTO_FIX_OPENCLAW_CAPTURE_TIMEOUT_SECS:-${FIX_MY_CLAW_CAPTURE_TIMEOUT_SECS:-300}}"
+
+NOTIFY_ENDPOINTS="${AUTO_FIX_OPENCLAW_NOTIFY_ENDPOINTS:-${FIX_MY_CLAW_NOTIFY_ENDPOINTS:-}}"
+NOTIFY_ACCOUNT="${AUTO_FIX_OPENCLAW_NOTIFY_ACCOUNT:-${FIX_MY_CLAW_NOTIFY_ACCOUNT:-}}"
+NOTIFY_ON="${AUTO_FIX_OPENCLAW_NOTIFY_ON:-failed,recovered,skipped,reconcile}"
+TELEGRAM_TARGET="${FIX_MY_CLAW_TELEGRAM_TARGET:-}"
+
+ENABLE_CODEX_FIX="${FIX_MY_CLAW_ENABLE_CODEX_FIX:-0}"
+REPAIR_PROVIDER="${AUTO_FIX_OPENCLAW_REPAIR_PROVIDER:-${FIX_MY_CLAW_REPAIR_PROVIDER:-}}"
+if [[ -z "$REPAIR_PROVIDER" ]]; then
+  if [[ "$ENABLE_CODEX_FIX" == "1" ]]; then
+    REPAIR_PROVIDER="codex"
+  else
+    REPAIR_PROVIDER="disabled"
+  fi
+fi
+REPAIR_PROVIDER_FALLBACK="${AUTO_FIX_OPENCLAW_REPAIR_PROVIDER_FALLBACK:-cloudcode}"
+REPAIR_PROVIDER_TIMEOUT_SECS="${AUTO_FIX_OPENCLAW_REPAIR_PROVIDER_TIMEOUT_SECS:-420}"
+
+CODEX_BIN="${AUTO_FIX_OPENCLAW_CODEX_BIN:-${FIX_MY_CLAW_CODEX_BIN:-$(command -v codex || true)}}"
+CODEX_MODEL="${AUTO_FIX_OPENCLAW_CODEX_MODEL:-${FIX_MY_CLAW_CODEX_MODEL:-gpt-5-codex}}"
+CODEX_TIMEOUT_SECS="${AUTO_FIX_OPENCLAW_CODEX_TIMEOUT_SECS:-${FIX_MY_CLAW_CODEX_TIMEOUT_SECS:-240}}"
+
+CLOUD_CODE_BIN="${AUTO_FIX_OPENCLAW_CLOUD_CODE_BIN:-$(command -v cloud-code || true)}"
+CLOUD_CODE_MODEL="${AUTO_FIX_OPENCLAW_CLOUD_CODE_MODEL:-}"
+CLOUD_CODE_TIMEOUT_SECS="${AUTO_FIX_OPENCLAW_CLOUD_CODE_TIMEOUT_SECS:-300}"
+CLOUD_CODE_ARGS_TEMPLATE="${AUTO_FIX_OPENCLAW_CLOUD_CODE_ARGS_TEMPLATE:-exec --full-auto --cwd \"$HOME\" --prompt-file \"{PROMPT_FILE}\"}"
+
+DRY_RUN="${AUTO_FIX_OPENCLAW_DRY_RUN:-0}"
+
+REPAIR_ATTEMPTED="0"
+RECONCILE_ATTEMPTED="0"
+LAST_ACTION_SUMMARY="unknown"
+ATTEMPT_PATH=""
+LAST_AI_PROVIDER="none"
+
+LAST_ATTEMPT_EPOCH=0
+LAST_SUCCESS_EPOCH=0
+DAILY_DATE="1970-01-01"
+DAILY_REPAIR_COUNT=0
+CONSECUTIVE_FAILURES=0
+LAST_RESULT="unknown"
+LAST_SOURCE="manual"
+LAST_VERSION_SEEN="unknown"
+LAST_CAPTURE_EPOCH=0
+
+log() {
+  local level="$1"
+  shift
+  local msg="$*"
+  local ts
+  ts="$(date -u +"%Y-%m-%dT%H:%M:%SZ")"
+  mkdir -p "$FIX_HOME"
+  printf "%s [%s] %s\n" "$ts" "$level" "$msg" | tee -a "$EVENT_LOG" >&2
+}
+
+die() {
+  log "ERROR" "$*"
+  exit 1
+}
+
+have_cmd() {
+  command -v "$1" >/dev/null 2>&1
+}
+
+run_with_timeout() {
+  local seconds="$1"
+  shift
+  if have_cmd timeout; then
+    timeout "$seconds" "$@"
+    return $?
+  fi
+  if have_cmd gtimeout; then
+    gtimeout "$seconds" "$@"
+    return $?
+  fi
+  "$@"
+}
+
+ensure_dirs() {
+  mkdir -p "$FIX_HOME" "$ATTEMPTS_DIR" "$RUNTIME_DIR" "$(dirname "$METRICS_FILE")"
+}
+
+today_utc() {
+  date -u +%F
+}
+
+now_epoch() {
+  date -u +%s
+}
+
+write_metrics() {
+  cat >"$METRICS_FILE" <<MET
+# HELP auto_fix_openclaw_last_success_epoch Last successful repair/check epoch seconds.
+# TYPE auto_fix_openclaw_last_success_epoch gauge
+auto_fix_openclaw_last_success_epoch ${LAST_SUCCESS_EPOCH}
+# HELP auto_fix_openclaw_last_attempt_epoch Last repair attempt epoch seconds.
+# TYPE auto_fix_openclaw_last_attempt_epoch gauge
+auto_fix_openclaw_last_attempt_epoch ${LAST_ATTEMPT_EPOCH}
+# HELP auto_fix_openclaw_daily_repairs Number of repairs attempted today.
+# TYPE auto_fix_openclaw_daily_repairs gauge
+auto_fix_openclaw_daily_repairs ${DAILY_REPAIR_COUNT}
+# HELP auto_fix_openclaw_consecutive_failures Number of consecutive failed repair cycles.
+# TYPE auto_fix_openclaw_consecutive_failures gauge
+auto_fix_openclaw_consecutive_failures ${CONSECUTIVE_FAILURES}
+# HELP auto_fix_openclaw_healthy 1 when last result is healthy, otherwise 0.
+# TYPE auto_fix_openclaw_healthy gauge
+auto_fix_openclaw_healthy $([[ "$LAST_RESULT" == "healthy" ]] && echo 1 || echo 0)
+MET
+}
+
+save_state() {
+  cat >"$STATE_FILE" <<EOF_STATE
+LAST_ATTEMPT_EPOCH=${LAST_ATTEMPT_EPOCH}
+LAST_SUCCESS_EPOCH=${LAST_SUCCESS_EPOCH}
+DAILY_DATE=${DAILY_DATE}
+DAILY_REPAIR_COUNT=${DAILY_REPAIR_COUNT}
+CONSECUTIVE_FAILURES=${CONSECUTIVE_FAILURES}
+LAST_RESULT=${LAST_RESULT}
+LAST_SOURCE=${LAST_SOURCE}
+LAST_VERSION_SEEN=${LAST_VERSION_SEEN}
+LAST_CAPTURE_EPOCH=${LAST_CAPTURE_EPOCH}
+LAST_AI_PROVIDER=${LAST_AI_PROVIDER}
+EOF_STATE
+  write_metrics
+}
+
+load_state() {
+  if [[ -f "$STATE_FILE" ]]; then
+    # shellcheck disable=SC1090
+    source "$STATE_FILE"
+  else
+    save_state
+  fi
+}
+
+roll_daily_counter() {
+  local today
+  today="$(today_utc)"
+  if [[ "$DAILY_DATE" != "$today" ]]; then
+    DAILY_DATE="$today"
+    DAILY_REPAIR_COUNT=0
+  fi
+}
+
+acquire_lock() {
+  if ! mkdir "$LOCK_DIR" 2>/dev/null; then
+    log "INFO" "Another ${APP_NAME} instance is running, skip."
+    exit 0
+  fi
+  trap 'rm -rf "$LOCK_DIR" >/dev/null 2>&1 || true' EXIT
+}
+
+set_attempt_path() {
+  local source_name="$1"
+  local stamp
+  stamp="$(date -u +"%Y%m%dT%H%M%SZ")"
+  ATTEMPT_PATH="$ATTEMPTS_DIR/${stamp}-${source_name}-${RANDOM}"
+  mkdir -p "$ATTEMPT_PATH"
+}
+
+run_capture() {
+  local name="$1"
+  shift
+  local out="$ATTEMPT_PATH/${name}.log"
+  local rc_file="$ATTEMPT_PATH/${name}.exit"
+  set +e
+  "$@" >"$out" 2>&1
+  local rc=$?
+  set -e
+  printf "%s\n" "$rc" >"$rc_file"
+  return "$rc"
+}
+
+should_notify() {
+  local event="${1,,}"
+  local normalized
+  normalized=",${NOTIFY_ON,,},"
+  [[ "$normalized" == *",${event},"* ]]
+}
+
+send_notify() {
+  local event="$1"
+  local msg="$2"
+  should_notify "$event" || return 0
+  [[ -z "$OPENCLAW_BIN" ]] && return 0
+
+  local endpoints="$NOTIFY_ENDPOINTS"
+  if [[ -n "$TELEGRAM_TARGET" ]]; then
+    if [[ -n "$endpoints" ]]; then
+      endpoints="${endpoints},telegram:${TELEGRAM_TARGET}"
+    else
+      endpoints="telegram:${TELEGRAM_TARGET}"
+    fi
+  fi
+  [[ -z "$endpoints" ]] && return 0
+
+  local idx=0
+  IFS=',' read -r -a endpoint_list <<<"$endpoints"
+  for endpoint in "${endpoint_list[@]}"; do
+    endpoint="$(echo "$endpoint" | xargs)"
+    [[ -z "$endpoint" ]] && continue
+
+    local channel target account
+    channel="${endpoint%%:*}"
+    target="${endpoint#*:}"
+    account=""
+    if [[ "$target" == *":"* ]]; then
+      account="${target#*:}"
+      target="${target%%:*}"
+    fi
+    [[ -z "$channel" || -z "$target" ]] && continue
+    if [[ -z "$account" ]]; then
+      account="$NOTIFY_ACCOUNT"
+    fi
+
+    idx=$((idx + 1))
+    if [[ -n "$account" ]]; then
+      run_capture "notify-${event}-${channel}-${idx}" "$OPENCLAW_BIN" message send \
+        --channel "$channel" --target "$target" --account "$account" --message "$msg" || true
+    else
+      run_capture "notify-${event}-${channel}-${idx}" "$OPENCLAW_BIN" message send \
+        --channel "$channel" --target "$target" --message "$msg" || true
+    fi
+  done
+}
+
+capture_runtime_context() {
+  {
+    echo "app: ${APP_NAME}"
+    echo "version: $VERSION"
+    echo "host: $(hostname)"
+    echo "uname: $(uname -a)"
+    echo "openclaw bin: ${OPENCLAW_BIN:-<missing>}"
+    echo "gateway unit: $OPENCLAW_GATEWAY_UNIT"
+    echo "config path: $OPENCLAW_CONFIG_PATH"
+    echo "safe paths: $SAFE_PATHS"
+    echo "source: $LAST_SOURCE"
+    echo "repair_provider: $REPAIR_PROVIDER"
+    echo "repair_provider_fallback: $REPAIR_PROVIDER_FALLBACK"
+    echo "dry_run: $DRY_RUN"
+  } >"$ATTEMPT_PATH/context.txt"
+
+  if [[ -n "$OPENCLAW_BIN" ]]; then
+    run_capture "openclaw-version" "$OPENCLAW_BIN" --version || true
+    run_capture "openclaw-status-deep" "$OPENCLAW_BIN" status --deep || true
+  fi
+  if have_cmd systemctl; then
+    run_capture "systemctl-status" systemctl --user status "$OPENCLAW_GATEWAY_UNIT" -l || true
+    run_capture "journal-tail" journalctl --user -u "$OPENCLAW_GATEWAY_UNIT" -n 200 --no-pager || true
+  fi
+}
+
+build_error_summary() {
+  local summary="$ATTEMPT_PATH/error-summary.txt"
+  {
+    echo "=== probe-initial-health.log (tail 160) ==="
+    tail -n 160 "$ATTEMPT_PATH/probe-initial-health.log" 2>/dev/null || true
+    echo
+    echo "=== probe-initial-status.log (tail 160) ==="
+    tail -n 160 "$ATTEMPT_PATH/probe-initial-status.log" 2>/dev/null || true
+    echo
+    echo "=== openclaw-status-deep.log (tail 200) ==="
+    tail -n 200 "$ATTEMPT_PATH/openclaw-status-deep.log" 2>/dev/null || true
+    echo
+    echo "=== journal-tail.log (filtered) ==="
+    if [[ -f "$ATTEMPT_PATH/journal-tail.log" ]]; then
+      rg -ni "error|fatal|failed|invalid|timeout|refused|cannot find|eaddrinuse|session file locked|messages\\[1\\]\\.content|unauthorized|token" \
+        "$ATTEMPT_PATH/journal-tail.log" | tail -n 160 || true
+    fi
+  } >"$summary"
+  echo "$summary"
+}
+
+get_openclaw_version() {
+  [[ -z "$OPENCLAW_BIN" ]] && { echo ""; return 0; }
+  "$OPENCLAW_BIN" --version 2>/dev/null | head -n 1 | tr -d '\r'
+}
+
+read_tracked_version() {
+  [[ -f "$VERSION_TRACK_FILE" ]] || return 1
+  cat "$VERSION_TRACK_FILE"
+}
+
+write_tracked_version() {
+  local version="$1"
+  mkdir -p "$(dirname "$VERSION_TRACK_FILE")"
+  printf "%s\n" "$version" >"$VERSION_TRACK_FILE"
+}
+
+extract_json_check() {
+  local input="$1"
+  local mode="$2"
+  python3 - "$input" "$mode" <<'PY'
+import json
+import pathlib
+import sys
+
+path = pathlib.Path(sys.argv[1])
+mode = sys.argv[2]
+text = path.read_text(encoding="utf-8", errors="ignore")
+parsed = None
+for i in [idx for idx, ch in enumerate(text) if ch == "{"][::-1]:
+    blob = text[i:].strip()
+    try:
+        parsed = json.loads(blob)
+        break
+    except Exception:
+        continue
+if parsed is None:
+    sys.exit(3)
+if mode == "health_ok":
+    ok = parsed.get("ok") is True
+elif mode == "status_ok":
+    ok = (
+        parsed.get("reachable") is True
+        or (
+            isinstance(parsed.get("gateway"), dict)
+            and parsed.get("gateway", {}).get("reachable") is True
+        )
+    )
+else:
+    ok = False
+sys.exit(0 if ok else 1)
+PY
+}
+
+probe_gateway() {
+  local label="$1"
+  local health_name="probe-${label}-health"
+  local status_name="probe-${label}-status"
+  local health_ok=0
+  local status_hint_ok=0
+
+  if [[ -z "$OPENCLAW_BIN" ]]; then
+    log "ERROR" "openclaw binary not found"
+    return 1
+  fi
+
+  run_capture "$health_name" "$OPENCLAW_BIN" health --json || true
+  if extract_json_check "$ATTEMPT_PATH/${health_name}.log" "health_ok"; then
+    health_ok=1
+  fi
+
+  run_capture "$status_name" "$OPENCLAW_BIN" gateway status --json || true
+  if extract_json_check "$ATTEMPT_PATH/${status_name}.log" "status_ok"; then
+    status_hint_ok=1
+  fi
+
+  [[ "$health_ok" -eq 1 || "$status_hint_ok" -eq 1 ]]
+}
+
+can_repair_now() {
+  roll_daily_counter
+
+  if (( DAILY_REPAIR_COUNT >= MAX_DAILY_REPAIRS )); then
+    LAST_ACTION_SUMMARY="daily-limit"
+    return 1
+  fi
+  if (( CONSECUTIVE_FAILURES >= MAX_CONSECUTIVE_FAILURES )); then
+    LAST_ACTION_SUMMARY="circuit-open"
+    return 1
+  fi
+
+  local now
+  now="$(now_epoch)"
+  if (( now - LAST_ATTEMPT_EPOCH < REPAIR_COOLDOWN_SECS )); then
+    LAST_ACTION_SUMMARY="cooldown"
+    return 1
+  fi
+  return 0
+}
+
+mark_repair_attempt() {
+  local now
+  now="$(now_epoch)"
+  LAST_ATTEMPT_EPOCH="$now"
+  DAILY_REPAIR_COUNT=$((DAILY_REPAIR_COUNT + 1))
+}
+
+record_success() {
+  local now
+  now="$(now_epoch)"
+  LAST_SUCCESS_EPOCH="$now"
+  CONSECUTIVE_FAILURES=0
+  LAST_RESULT="healthy"
+}
+
+record_failure() {
+  CONSECUTIVE_FAILURES=$((CONSECUTIVE_FAILURES + 1))
+  LAST_RESULT="unhealthy"
+}
+
+maybe_capture_custom() {
+  [[ "$CAPTURE_ON_HEALTHY" == "1" ]] || return 0
+  [[ -n "$CAPTURE_CMD" ]] || return 0
+
+  local now
+  now="$(now_epoch)"
+  if (( now - LAST_CAPTURE_EPOCH < CAPTURE_INTERVAL_SECS )); then
+    return 0
+  fi
+
+  if run_capture "capture-custom" run_with_timeout "$CAPTURE_TIMEOUT_SECS" /bin/bash -lc "$CAPTURE_CMD"; then
+    LAST_CAPTURE_EPOCH="$now"
+    LAST_ACTION_SUMMARY="healthy-capture-updated"
+    return 0
+  fi
+
+  LAST_ACTION_SUMMARY="healthy-capture-failed"
+  return 1
+}
+
+run_reconcile_cmd() {
+  local reason="$1"
+  [[ -n "$RECONCILE_CMD" ]] || return 1
+  REPAIR_ATTEMPTED="1"
+  RECONCILE_ATTEMPTED="1"
+  LAST_ACTION_SUMMARY="reconcile-${reason}"
+  run_capture "reconcile-${reason}" run_with_timeout "$RECONCILE_TIMEOUT_SECS" /bin/bash -lc "$RECONCILE_CMD" || return 1
+  return 0
+}
+
+maybe_reconcile_on_version_change() {
+  [[ "$RECONCILE_ON_VERSION_CHANGE" == "1" ]] || return 0
+  local current tracked
+  current="$(get_openclaw_version)"
+  [[ -n "$current" ]] || return 0
+  LAST_VERSION_SEEN="$current"
+
+  if tracked="$(read_tracked_version 2>/dev/null)"; then
+    true
+  else
+    tracked=""
+  fi
+
+  if [[ -z "$tracked" ]]; then
+    write_tracked_version "$current"
+    return 0
+  fi
+
+  if [[ "$tracked" == "$current" ]]; then
+    return 0
+  fi
+
+  log "WARN" "OpenClaw version changed: ${tracked} -> ${current}"
+  if [[ -z "$RECONCILE_CMD" ]]; then
+    write_tracked_version "$current"
+    LAST_ACTION_SUMMARY="version-changed-no-reconcile-cmd"
+    return 0
+  fi
+
+  if ! run_reconcile_cmd "version-change"; then
+    LAST_ACTION_SUMMARY="reconcile-version-change-failed"
+    return 1
+  fi
+
+  run_capture "reconcile-post-restart-version-change" "$OPENCLAW_BIN" gateway restart || true
+  sleep 6
+  if ! probe_gateway "after-reconcile-version-change"; then
+    LAST_ACTION_SUMMARY="reconcile-version-change-unhealthy"
+    return 1
+  fi
+
+  write_tracked_version "$current"
+  LAST_ACTION_SUMMARY="reconcile-version-change-fixed"
+  send_notify "reconcile" "${APP_NAME}: reconcile succeeded after version change (${tracked} -> ${current})"
+  return 0
+}
+
+repair_official() {
+  REPAIR_ATTEMPTED="1"
+  LAST_ACTION_SUMMARY="official-repair"
+
+  if [[ "$DRY_RUN" == "1" ]]; then
+    run_capture "repair-doctor-dry-run" "$OPENCLAW_BIN" doctor --non-interactive || true
+    LAST_ACTION_SUMMARY="dry-run-only"
+    return 1
+  fi
+
+  run_capture "repair-gateway-restart" "$OPENCLAW_BIN" gateway restart || true
+  sleep 6
+  if probe_gateway "after-restart"; then
+    LAST_ACTION_SUMMARY="restart-fixed"
+    return 0
+  fi
+
+  run_capture "repair-doctor" "$OPENCLAW_BIN" doctor --repair --non-interactive --yes || true
+  run_capture "repair-gateway-restart-2" "$OPENCLAW_BIN" gateway restart || true
+  sleep 6
+  if probe_gateway "after-doctor"; then
+    LAST_ACTION_SUMMARY="doctor-fixed"
+    return 0
+  fi
+
+  if have_cmd systemctl; then
+    run_capture "repair-systemctl-reset-failed" systemctl --user reset-failed "$OPENCLAW_GATEWAY_UNIT" || true
+    run_capture "repair-systemctl-restart" systemctl --user restart "$OPENCLAW_GATEWAY_UNIT" || true
+    sleep 8
+    if probe_gateway "after-systemctl"; then
+      LAST_ACTION_SUMMARY="systemctl-fixed"
+      return 0
+    fi
+  fi
+
+  if have_cmd launchctl; then
+    local label="gui/$(id -u)/ai.openclaw.gateway"
+    run_capture "repair-launchctl-kickstart" launchctl kickstart -k "$label" || true
+    sleep 6
+    if probe_gateway "after-launchctl"; then
+      LAST_ACTION_SUMMARY="launchctl-fixed"
+      return 0
+    fi
+  fi
+
+  LAST_ACTION_SUMMARY="official-repair-failed"
+  return 1
+}
+
+provider_script_path() {
+  local provider="${1,,}"
+  case "$provider" in
+    codex)
+      echo "$PROJECT_ROOT/scripts/providers/codex-repair.sh"
+      ;;
+    cloudcode)
+      echo "$PROJECT_ROOT/scripts/providers/cloudcode-repair.sh"
+      ;;
+    *)
+      return 1
+      ;;
+  esac
+}
+
+run_ai_repair_provider() {
+  local provider="${1,,}"
+  [[ "$provider" == "disabled" || -z "$provider" ]] && return 1
+
+  local script
+  if ! script="$(provider_script_path "$provider")"; then
+    return 1
+  fi
+  [[ -x "$script" ]] || return 1
+
+  REPAIR_ATTEMPTED="1"
+  LAST_ACTION_SUMMARY="${provider}-repair"
+
+  local error_summary_file
+  error_summary_file="$(build_error_summary)"
+
+  export AUTO_FIX_OPENCLAW_ATTEMPT_PATH="$ATTEMPT_PATH"
+  export AUTO_FIX_OPENCLAW_ERROR_SUMMARY_FILE="$error_summary_file"
+  export AUTO_FIX_OPENCLAW_OPENCLAW_CONFIG_PATH="$OPENCLAW_CONFIG_PATH"
+  export AUTO_FIX_OPENCLAW_SAFE_PATHS="$SAFE_PATHS"
+  export AUTO_FIX_OPENCLAW_OPENCLAW_BIN="$OPENCLAW_BIN"
+  export AUTO_FIX_OPENCLAW_CODEX_BIN="$CODEX_BIN"
+  export AUTO_FIX_OPENCLAW_CODEX_MODEL="$CODEX_MODEL"
+  export AUTO_FIX_OPENCLAW_CODEX_TIMEOUT_SECS="$CODEX_TIMEOUT_SECS"
+  export AUTO_FIX_OPENCLAW_CLOUD_CODE_BIN="$CLOUD_CODE_BIN"
+  export AUTO_FIX_OPENCLAW_CLOUD_CODE_MODEL="$CLOUD_CODE_MODEL"
+  export AUTO_FIX_OPENCLAW_CLOUD_CODE_TIMEOUT_SECS="$CLOUD_CODE_TIMEOUT_SECS"
+  export AUTO_FIX_OPENCLAW_CLOUD_CODE_ARGS_TEMPLATE="$CLOUD_CODE_ARGS_TEMPLATE"
+
+  run_capture "repair-ai-${provider}" run_with_timeout "$REPAIR_PROVIDER_TIMEOUT_SECS" "$script" || return 1
+
+  run_capture "repair-gateway-restart-after-${provider}" "$OPENCLAW_BIN" gateway restart || true
+  sleep 8
+  if probe_gateway "after-${provider}"; then
+    LAST_ACTION_SUMMARY="${provider}-fixed"
+    LAST_AI_PROVIDER="$provider"
+    return 0
+  fi
+
+  LAST_ACTION_SUMMARY="${provider}-repair-failed"
+  return 1
+}
+
+repair_with_ai() {
+  local primary="${REPAIR_PROVIDER,,}"
+  local fallback="${REPAIR_PROVIDER_FALLBACK,,}"
+
+  if run_ai_repair_provider "$primary"; then
+    return 0
+  fi
+  [[ -n "$fallback" && "$fallback" != "$primary" && "$fallback" != "disabled" ]] || return 1
+  run_ai_repair_provider "$fallback"
+}
+
+write_attempt_result() {
+  local source_name="$1"
+  local final_status="$2"
+  local now
+  now="$(date -u +"%Y-%m-%dT%H:%M:%SZ")"
+  cat >"$ATTEMPT_PATH/result.json" <<EOF_RESULT
+{
+  "time": "${now}",
+  "source": "${source_name}",
+  "status": "${final_status}",
+  "repairAttempted": ${REPAIR_ATTEMPTED},
+  "reconcileAttempted": ${RECONCILE_ATTEMPTED},
+  "actionSummary": "${LAST_ACTION_SUMMARY}",
+  "openclawVersionSeen": "${LAST_VERSION_SEEN}",
+  "dailyRepairCount": ${DAILY_REPAIR_COUNT},
+  "consecutiveFailures": ${CONSECUTIVE_FAILURES},
+  "lastSuccessEpoch": ${LAST_SUCCESS_EPOCH},
+  "lastAttemptEpoch": ${LAST_ATTEMPT_EPOCH},
+  "lastAIProvider": "${LAST_AI_PROVIDER}",
+  "dryRun": ${DRY_RUN}
+}
+EOF_RESULT
+}
+
+run_once() {
+  local source_name="${1:-manual}"
+  LAST_SOURCE="$source_name"
+  REPAIR_ATTEMPTED="0"
+  RECONCILE_ATTEMPTED="0"
+  LAST_AI_PROVIDER="none"
+
+  ensure_dirs
+  acquire_lock
+  load_state
+  roll_daily_counter
+  set_attempt_path "$source_name"
+  capture_runtime_context
+  maybe_reconcile_on_version_change || true
+
+  if probe_gateway "initial"; then
+    record_success
+    maybe_capture_custom || true
+    if [[ "$RECONCILE_ATTEMPTED" != "1" ]]; then
+      if [[ "$LAST_ACTION_SUMMARY" != "healthy-capture-updated" && "$LAST_ACTION_SUMMARY" != "healthy-capture-failed" ]]; then
+        LAST_ACTION_SUMMARY="healthy-noop"
+      fi
+    fi
+    write_attempt_result "$source_name" "healthy"
+    save_state
+    log "INFO" "Gateway healthy, no repair needed."
+    return 0
+  fi
+
+  LAST_RESULT="unhealthy"
+  log "WARN" "Gateway unhealthy detected."
+
+  if ! can_repair_now; then
+    write_attempt_result "$source_name" "unhealthy-skipped"
+    save_state
+    send_notify "skipped" "${APP_NAME}: unhealthy but skipped repair (${LAST_ACTION_SUMMARY})"
+    return 1
+  fi
+
+  mark_repair_attempt
+
+  if [[ "$RECONCILE_ON_UNHEALTHY" == "1" ]]; then
+    if run_reconcile_cmd "unhealthy"; then
+      run_capture "reconcile-post-restart-unhealthy" "$OPENCLAW_BIN" gateway restart || true
+      sleep 6
+      if probe_gateway "after-reconcile-unhealthy"; then
+        record_success
+        write_attempt_result "$source_name" "repaired-by-reconcile"
+        save_state
+        send_notify "reconcile" "${APP_NAME}: gateway recovered by reconcile (${LAST_ACTION_SUMMARY})"
+        return 0
+      fi
+    fi
+  fi
+
+  if repair_official; then
+    record_success
+    write_attempt_result "$source_name" "repaired"
+    save_state
+    send_notify "recovered" "${APP_NAME}: gateway recovered (${LAST_ACTION_SUMMARY})"
+    return 0
+  fi
+
+  if repair_with_ai; then
+    record_success
+    write_attempt_result "$source_name" "repaired-by-ai"
+    save_state
+    send_notify "recovered" "${APP_NAME}: gateway recovered by ${LAST_AI_PROVIDER} (${LAST_ACTION_SUMMARY})"
+    return 0
+  fi
+
+  record_failure
+  write_attempt_result "$source_name" "unhealthy-failed"
+  save_state
+  send_notify "failed" "${APP_NAME}: repair failed (${LAST_ACTION_SUMMARY}), manual intervention required"
+  return 1
+}
+
+daemon_loop() {
+  ensure_dirs
+  acquire_lock
+  echo "$$" >"$PID_FILE"
+  trap 'rm -f "$PID_FILE" >/dev/null 2>&1 || true' EXIT
+
+  log "INFO" "Daemon started, interval=${CHECK_INTERVAL_SECS}s"
+  while true; do
+    set +e
+    run_once "daemon"
+    set -e
+    sleep "$CHECK_INTERVAL_SECS"
+  done
+}
+
+up() {
+  ensure_dirs
+  if [[ -f "$PID_FILE" ]] && kill -0 "$(cat "$PID_FILE")" >/dev/null 2>&1; then
+    log "INFO" "Daemon already running with pid=$(cat "$PID_FILE")"
+    return 0
+  fi
+
+  nohup "$SELF_PATH" daemon >/dev/null 2>&1 &
+  sleep 1
+  if [[ -f "$PID_FILE" ]] && kill -0 "$(cat "$PID_FILE")" >/dev/null 2>&1; then
+    log "INFO" "Daemon started with pid=$(cat "$PID_FILE")"
+    return 0
+  fi
+  die "Failed to start daemon."
+}
+
+down() {
+  if [[ ! -f "$PID_FILE" ]]; then
+    log "INFO" "Daemon not running."
+    return 0
+  fi
+  local pid
+  pid="$(cat "$PID_FILE")"
+  if kill -0 "$pid" >/dev/null 2>&1; then
+    kill "$pid" >/dev/null 2>&1 || true
+    sleep 1
+  fi
+  rm -f "$PID_FILE"
+  log "INFO" "Daemon stopped."
+}
+
+status() {
+  ensure_dirs
+  load_state
+  echo "${APP_NAME} version: $VERSION"
+  if [[ -f "$PID_FILE" ]] && kill -0 "$(cat "$PID_FILE")" >/dev/null 2>&1; then
+    echo "daemon: running (pid=$(cat "$PID_FILE"))"
+  else
+    echo "daemon: stopped"
+  fi
+  echo "last_result: $LAST_RESULT"
+  echo "daily_count: $DAILY_REPAIR_COUNT / $MAX_DAILY_REPAIRS"
+  echo "consecutive_failures: $CONSECUTIVE_FAILURES / $MAX_CONSECUTIVE_FAILURES"
+  echo "last_success_epoch: $LAST_SUCCESS_EPOCH"
+  echo "last_attempt_epoch: $LAST_ATTEMPT_EPOCH"
+  echo "last_version_seen: $LAST_VERSION_SEEN"
+  echo "version_track_file: $VERSION_TRACK_FILE"
+  echo "reconcile_enabled(version/unhealthy): ${RECONCILE_ON_VERSION_CHANGE}/${RECONCILE_ON_UNHEALTHY}"
+  echo "reconcile_cmd: ${RECONCILE_CMD:-<empty>}"
+  echo "capture_on_healthy: $CAPTURE_ON_HEALTHY"
+  echo "capture_cmd: ${CAPTURE_CMD:-<empty>}"
+  echo "capture_interval_secs: $CAPTURE_INTERVAL_SECS"
+  echo "notify_on: $NOTIFY_ON"
+  echo "notify_endpoints: ${NOTIFY_ENDPOINTS:-<empty>}"
+  echo "notify_account: ${NOTIFY_ACCOUNT:-<empty>}"
+  echo "repair_provider: $REPAIR_PROVIDER"
+  echo "repair_provider_fallback: $REPAIR_PROVIDER_FALLBACK"
+  echo "codex_bin: ${CODEX_BIN:-<missing>}"
+  echo "codex_model: $CODEX_MODEL"
+  echo "cloud_code_bin: ${CLOUD_CODE_BIN:-<missing>}"
+  echo "cloud_code_model: ${CLOUD_CODE_MODEL:-<empty>}"
+  echo "dry_run: $DRY_RUN"
+  echo "metrics_file: $METRICS_FILE"
+  echo "event_log: $EVENT_LOG"
+  echo "attempts_dir: $ATTEMPTS_DIR"
+}
+
+print_metrics() {
+  ensure_dirs
+  load_state
+  write_metrics
+  cat "$METRICS_FILE"
+}
+
+install_systemd() {
+  local script_path template_dir unit_dir
+  script_path="$SELF_PATH"
+  template_dir="$PROJECT_ROOT/deploy/systemd-user"
+  unit_dir="$HOME/.config/systemd/user"
+  mkdir -p "$unit_dir/openclaw-gateway.service.d"
+
+  sed "s|__AUTO_FIX_OPENCLAW_BIN__|$script_path|g" \
+    "$template_dir/auto-fix-openclaw.service" >"$unit_dir/auto-fix-openclaw.service"
+  sed "s|__AUTO_FIX_OPENCLAW_BIN__|$script_path|g" \
+    "$template_dir/auto-fix-openclaw-onfailure.service" >"$unit_dir/auto-fix-openclaw-onfailure.service"
+  cp "$template_dir/auto-fix-openclaw.timer" "$unit_dir/auto-fix-openclaw.timer"
+  cp "$template_dir/openclaw-gateway.service.d/20-auto-fix-openclaw.conf" \
+    "$unit_dir/openclaw-gateway.service.d/20-auto-fix-openclaw.conf"
+
+  systemctl --user daemon-reload
+  systemctl --user enable --now auto-fix-openclaw.timer
+  log "INFO" "Installed systemd user units and enabled auto-fix-openclaw.timer"
+}
+
+uninstall_systemd() {
+  local unit_dir="$HOME/.config/systemd/user"
+  systemctl --user disable --now auto-fix-openclaw.timer >/dev/null 2>&1 || true
+  rm -f "$unit_dir/auto-fix-openclaw.service" \
+        "$unit_dir/auto-fix-openclaw.timer" \
+        "$unit_dir/auto-fix-openclaw-onfailure.service" \
+        "$unit_dir/openclaw-gateway.service.d/20-auto-fix-openclaw.conf"
+  systemctl --user daemon-reload >/dev/null 2>&1 || true
+  log "INFO" "Removed systemd user units for auto-fix-openclaw"
+}
+
+install_launchd() {
+  local script_path template target
+  script_path="$SELF_PATH"
+  template="$PROJECT_ROOT/deploy/launchd/com.openclaw.autofix.plist"
+  target="$HOME/Library/LaunchAgents/com.openclaw.autofix.plist"
+  mkdir -p "$(dirname "$target")"
+
+  sed "s|__AUTO_FIX_OPENCLAW_BIN__|$script_path|g" "$template" >"$target"
+  launchctl unload "$target" >/dev/null 2>&1 || true
+  launchctl load -w "$target"
+  log "INFO" "Installed launchd agent: $target"
+}
+
+uninstall_launchd() {
+  local target="$HOME/Library/LaunchAgents/com.openclaw.autofix.plist"
+  launchctl unload "$target" >/dev/null 2>&1 || true
+  rm -f "$target"
+  log "INFO" "Removed launchd agent: $target"
+}
+
+doctor_dry_run() {
+  local old_dry="$DRY_RUN"
+  DRY_RUN=1
+  run_once "doctor-dry-run"
+  DRY_RUN="$old_dry"
+}
+
+usage() {
+  cat <<'EOF_USAGE'
+auto-fix-openclaw - production-grade OpenClaw gateway auto-heal framework
+
+Usage:
+  auto-fix-openclaw up                         Start daemon mode in background
+  auto-fix-openclaw down                       Stop daemon mode
+  auto-fix-openclaw status                     Show daemon/state snapshot
+  auto-fix-openclaw run-once [--source X]      Run one health-check + repair cycle
+  auto-fix-openclaw check                      Health-check only (no repair)
+  auto-fix-openclaw doctor-dry-run             Collect diagnostics without mutating services
+  auto-fix-openclaw metrics                    Print Prometheus text metrics
+  auto-fix-openclaw reset-state                Reset counters/circuit-breaker state
+  auto-fix-openclaw install-systemd            Install Linux systemd user timer + OnFailure hook
+  auto-fix-openclaw uninstall-systemd          Remove Linux systemd user units
+  auto-fix-openclaw install-launchd            Install macOS launchd periodic check
+  auto-fix-openclaw uninstall-launchd          Remove macOS launchd agent
+  auto-fix-openclaw version
+
+Environment knobs (new prefix):
+  AUTO_FIX_OPENCLAW_ENV_FILE
+  AUTO_FIX_OPENCLAW_CHECK_INTERVAL_SECS
+  AUTO_FIX_OPENCLAW_REPAIR_COOLDOWN_SECS
+  AUTO_FIX_OPENCLAW_MAX_DAILY_REPAIRS
+  AUTO_FIX_OPENCLAW_MAX_CONSECUTIVE_FAILURES
+  AUTO_FIX_OPENCLAW_RECONCILE_CMD
+  AUTO_FIX_OPENCLAW_RECONCILE_ON_VERSION_CHANGE
+  AUTO_FIX_OPENCLAW_RECONCILE_ON_UNHEALTHY
+  AUTO_FIX_OPENCLAW_CAPTURE_ON_HEALTHY
+  AUTO_FIX_OPENCLAW_CAPTURE_CMD
+  AUTO_FIX_OPENCLAW_NOTIFY_ENDPOINTS
+  AUTO_FIX_OPENCLAW_NOTIFY_ON
+  AUTO_FIX_OPENCLAW_REPAIR_PROVIDER=codex|cloudcode|disabled
+  AUTO_FIX_OPENCLAW_REPAIR_PROVIDER_FALLBACK=cloudcode|codex|disabled
+  AUTO_FIX_OPENCLAW_SAFE_PATHS
+
+Legacy FIX_MY_CLAW_* variables are still accepted.
+EOF_USAGE
+}
+
+cmd="${1:-}"
+case "$cmd" in
+  up)
+    up
+    ;;
+  down)
+    down
+    ;;
+  status)
+    status
+    ;;
+  daemon)
+    daemon_loop
+    ;;
+  run-once)
+    shift || true
+    source_name="manual"
+    if [[ "${1:-}" == "--source" && -n "${2:-}" ]]; then
+      source_name="$2"
+    fi
+    run_once "$source_name"
+    ;;
+  check)
+    ensure_dirs
+    acquire_lock
+    set_attempt_path "check"
+    capture_runtime_context
+    if probe_gateway "check"; then
+      echo "healthy"
+      exit 0
+    fi
+    echo "unhealthy"
+    exit 1
+    ;;
+  doctor-dry-run)
+    doctor_dry_run
+    ;;
+  metrics)
+    print_metrics
+    ;;
+  reset-state)
+    ensure_dirs
+    LAST_ATTEMPT_EPOCH=0
+    LAST_SUCCESS_EPOCH=0
+    DAILY_DATE="$(today_utc)"
+    DAILY_REPAIR_COUNT=0
+    CONSECUTIVE_FAILURES=0
+    LAST_RESULT="unknown"
+    LAST_SOURCE="manual"
+    LAST_CAPTURE_EPOCH=0
+    LAST_AI_PROVIDER="none"
+    save_state
+    log "INFO" "State reset complete."
+    ;;
+  install-systemd)
+    install_systemd
+    ;;
+  uninstall-systemd)
+    uninstall_systemd
+    ;;
+  install-launchd)
+    install_launchd
+    ;;
+  uninstall-launchd)
+    uninstall_launchd
+    ;;
+  version)
+    echo "$VERSION"
+    ;;
+  ""|-h|--help|help)
+    usage
+    ;;
+  *)
+    usage
+    die "Unknown command: $cmd"
+    ;;
+esac

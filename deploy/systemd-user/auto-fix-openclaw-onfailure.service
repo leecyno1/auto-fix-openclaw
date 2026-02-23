@@ -1,0 +1,10 @@
+[Unit]
+Description=auto-fix-openclaw onfailure trigger for openclaw gateway
+
+[Service]
+Type=oneshot
+ExecStart=__AUTO_FIX_OPENCLAW_BIN__ run-once --source onfailure
+Environment=HOME=%h
+Environment="PATH=%h/.local/bin:%h/.npm-global/bin:%h/.nvm/current/bin:/usr/local/bin:/usr/bin:/bin"
+EnvironmentFile=-%h/.config/openclaw/auto-fix-openclaw.env
+TimeoutStartSec=420
