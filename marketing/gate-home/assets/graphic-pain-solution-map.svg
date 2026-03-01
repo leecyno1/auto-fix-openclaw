@@ -1,0 +1,39 @@
+<svg width="1200" height="560" viewBox="0 0 1200 560" fill="none" xmlns="http://www.w3.org/2000/svg">
+  <rect width="1200" height="560" rx="24" fill="#0B1120"/>
+  <text x="60" y="70" fill="#E2E8F0" font-size="36" font-family="Arial" font-weight="700">从“断联焦虑”到“稳定可控”</text>
+
+  <g font-family="Arial" font-size="18">
+    <rect x="70" y="120" width="300" height="360" rx="18" fill="#1F2937" stroke="#EF4444"/>
+    <text x="100" y="170" fill="#FCA5A5" font-size="24" font-weight="700">真实痛点</text>
+    <text x="100" y="220" fill="#FECACA">1. 龙虾使用中频繁断联</text>
+    <text x="100" y="260" fill="#FECACA">2. 升级后配置漂移/覆盖</text>
+    <text x="100" y="300" fill="#FECACA">3. 多 coding 产品环境差异大</text>
+    <text x="100" y="340" fill="#FECACA">4. 夜间故障需要人工守护</text>
+    <text x="100" y="380" fill="#FECACA">5. 问题重复出现，缺少审计链</text>
+
+    <rect x="450" y="120" width="300" height="360" rx="18" fill="#111827" stroke="#38BDF8"/>
+    <text x="488" y="170" fill="#BAE6FD" font-size="24" font-weight="700">核心解法</text>
+    <text x="488" y="220" fill="#CFFAFE">1. 连续健康探测 + 自愈触发</text>
+    <text x="488" y="260" fill="#CFFAFE">2. reconcile 回放本地定制</text>
+    <text x="488" y="300" fill="#CFFAFE">3. 确定性修复优先，AI 兜底</text>
+    <text x="488" y="340" fill="#CFFAFE">4. 冷却/日上限/熔断反抖</text>
+    <text x="488" y="380" fill="#CFFAFE">5. 指标、日志、通知全链路可见</text>
+
+    <rect x="830" y="120" width="300" height="360" rx="18" fill="#0F172A" stroke="#22C55E"/>
+    <text x="868" y="170" fill="#BBF7D0" font-size="24" font-weight="700">最终效果</text>
+    <text x="868" y="220" fill="#DCFCE7">1. 断联恢复时间显著缩短</text>
+    <text x="868" y="260" fill="#DCFCE7">2. 升级后稳定性明显提升</text>
+    <text x="868" y="300" fill="#DCFCE7">3. 兼容多产品维护流程</text>
+    <text x="868" y="340" fill="#DCFCE7">4. 降低夜间值守和人力成本</text>
+    <text x="868" y="380" fill="#DCFCE7">5. 故障可追踪、可复盘、可改进</text>
+  </g>
+
+  <g stroke="#60A5FA" stroke-width="4" stroke-linecap="round">
+    <path d="M370 220H430"/>
+    <path d="M370 300H430"/>
+    <path d="M370 380H430"/>
+    <path d="M750 220H810"/>
+    <path d="M750 300H810"/>
+    <path d="M750 380H810"/>
+  </g>
+</svg>

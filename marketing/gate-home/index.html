@@ -1,0 +1,239 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Auto-Fix OpenClaw | 让龙虾连接稳定下来</title>
+  <style>
+    :root {
+      --bg: #050b16;
+      --panel: #0f172a;
+      --panel-2: #111c34;
+      --text: #e5eefb;
+      --muted: #93a8c7;
+      --line: #2a3a59;
+      --cyan: #22d3ee;
+      --blue: #3b82f6;
+      --green: #34d399;
+      --pink: #f472b6;
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      font-family: "PingFang SC", "Noto Sans CJK SC", "Microsoft YaHei", sans-serif;
+      color: var(--text);
+      background:
+        radial-gradient(1200px 600px at 10% -10%, rgba(34, 211, 238, 0.2), transparent),
+        radial-gradient(900px 500px at 100% 0%, rgba(59, 130, 246, 0.22), transparent),
+        var(--bg);
+      line-height: 1.65;
+    }
+    .container { width: min(1160px, calc(100% - 40px)); margin: 0 auto; }
+    .hero { padding: 72px 0 56px; }
+    .hero-grid {
+      display: grid;
+      grid-template-columns: 96px 1fr;
+      gap: 24px;
+      align-items: start;
+    }
+    .hero h1 { margin: 0 0 12px; font-size: clamp(34px, 5vw, 56px); line-height: 1.15; }
+    .hero p { margin: 0; color: var(--muted); font-size: 18px; max-width: 860px; }
+    .badge-row { margin-top: 22px; display: flex; flex-wrap: wrap; gap: 10px; }
+    .badge {
+      border: 1px solid var(--line);
+      background: rgba(15, 23, 42, 0.6);
+      color: #cde3ff;
+      padding: 6px 12px;
+      border-radius: 999px;
+      font-size: 14px;
+    }
+    .cta-row { margin-top: 26px; display: flex; gap: 12px; flex-wrap: wrap; }
+    .btn {
+      text-decoration: none;
+      padding: 11px 16px;
+      border-radius: 12px;
+      border: 1px solid var(--line);
+      color: var(--text);
+      background: #0f1b33;
+      font-weight: 600;
+    }
+    .btn.primary {
+      border-color: transparent;
+      background: linear-gradient(120deg, #2563eb, #06b6d4);
+    }
+
+    section { padding: 26px 0 8px; }
+    h2 { font-size: 30px; margin: 0 0 10px; }
+    .section-desc { color: var(--muted); margin: 0 0 18px; }
+
+    .card-grid {
+      display: grid;
+      grid-template-columns: repeat(3, minmax(0, 1fr));
+      gap: 14px;
+    }
+    .card {
+      background: linear-gradient(160deg, rgba(17, 28, 52, 0.95), rgba(11, 18, 35, 0.95));
+      border: 1px solid var(--line);
+      border-radius: 16px;
+      padding: 18px;
+      min-height: 160px;
+    }
+    .card h3 { margin: 0 0 8px; font-size: 20px; }
+    .card p { margin: 0; color: var(--muted); }
+
+    .story {
+      margin-top: 8px;
+      border-left: 2px dashed #35517c;
+      padding-left: 18px;
+      display: grid;
+      gap: 14px;
+    }
+    .story-item {
+      background: rgba(15, 23, 42, 0.65);
+      border: 1px solid var(--line);
+      border-radius: 14px;
+      padding: 14px 16px;
+    }
+    .story-item strong { color: #c7defe; }
+
+    .img-wrap {
+      margin-top: 14px;
+      border: 1px solid var(--line);
+      border-radius: 16px;
+      overflow: hidden;
+      background: #0b1221;
+    }
+    .img-wrap img { width: 100%; display: block; }
+
+    .table {
+      margin-top: 12px;
+      border: 1px solid var(--line);
+      border-radius: 14px;
+      overflow: hidden;
+    }
+    .row {
+      display: grid;
+      grid-template-columns: 220px 1fr;
+      border-bottom: 1px solid var(--line);
+    }
+    .row:last-child { border-bottom: 0; }
+    .cell { padding: 12px 14px; }
+    .head { background: #0f1c35; color: #c6dafa; font-weight: 700; }
+    .foot {
+      margin: 34px 0 56px;
+      background: linear-gradient(135deg, rgba(37, 99, 235, 0.22), rgba(6, 182, 212, 0.18));
+      border: 1px solid #2454a0;
+      border-radius: 18px;
+      padding: 22px;
+    }
+    .foot h3 { margin: 0 0 8px; font-size: 26px; }
+    .foot p { margin: 0; color: #d2e6ff; }
+
+    @media (max-width: 920px) {
+      .hero-grid { grid-template-columns: 72px 1fr; }
+      .card-grid { grid-template-columns: 1fr; }
+      .row { grid-template-columns: 1fr; }
+      .head { border-bottom: 1px solid var(--line); }
+    }
+  </style>
+</head>
+<body>
+  <header class="hero">
+    <div class="container">
+      <div class="hero-grid">
+        <img src="./assets/logo-autofix-openclaw.svg" alt="auto-fix-openclaw logo" width="96" height="96" />
+        <div>
+          <h1>Auto-Fix OpenClaw：把“龙虾断联”变成“可预期自愈”</h1>
+          <p>
+            从真实运维痛点出发：连接频繁中断、升级后漂移、跨 coding 产品环境差异大。我们做的不只是“修一次”，
+            而是构建一个可持续、可审计、可运营的自动修复体系。
+          </p>
+          <div class="badge-row">
+            <span class="badge">健康探测 + 修复链路</span>
+            <span class="badge">确定性修复优先</span>
+            <span class="badge">Codex / Claude 双后备</span>
+            <span class="badge">升级后定制回放</span>
+            <span class="badge">通知 + 指标 + 审计</span>
+          </div>
+          <div class="cta-row">
+            <a class="btn primary" href="../../README.md">查看项目 README</a>
+            <a class="btn" href="../../docs/project-intro.zh-CN.md">阅读中文项目介绍</a>
+          </div>
+        </div>
+      </div>
+    </div>
+  </header>
+
+  <main class="container">
+    <section>
+      <h2>我们为什么做这个项目？</h2>
+      <p class="section-desc">不是为了“炫 AI”，而是为了降低真实业务中的断联损失和维护焦虑。</p>
+      <div class="story">
+        <div class="story-item"><strong>起点：</strong>龙虾在高频使用场景里，偶发断联会直接打断工作流，人工排障成本高。</div>
+        <div class="story-item"><strong>痛点放大：</strong>版本升级后，历史自定义配置/插件可能失效，导致“每升一次，修一次”。</div>
+        <div class="story-item"><strong>复杂性来源：</strong>不同 coding 产品环境参数与依赖差异，单一脚本难以长期稳定。</div>
+        <div class="story-item"><strong>目标：</strong>把运维经验沉淀成自动化闭环，让系统持续自愈，而不是依赖个人值守。</div>
+      </div>
+    </section>
+
+    <section>
+      <h2>图形化功能介绍</h2>
+      <p class="section-desc">“探测 → 决策 → 修复 → 验证 → 通知/审计”的完整闭环。</p>
+      <div class="img-wrap">
+        <img src="./assets/graphic-repair-pipeline.svg" alt="repair pipeline" />
+      </div>
+      <div class="img-wrap">
+        <img src="./assets/graphic-pain-solution-map.svg" alt="pain solution map" />
+      </div>
+    </section>
+
+    <section>
+      <h2>核心能力一览</h2>
+      <div class="card-grid">
+        <article class="card">
+          <h3>持续健康探测</h3>
+          <p>连续探测 OpenClaw 网关状态，第一时间发现连接退化与断联风险。</p>
+        </article>
+        <article class="card">
+          <h3>分层修复链路</h3>
+          <p>优先走 restart/doctor 等确定性修复，失败后再启用 AI 后备，降低误改动概率。</p>
+        </article>
+        <article class="card">
+          <h3>升级定制回放</h3>
+          <p>版本变更时自动 reconcile，回放本地 customization，减少升级后断联。</p>
+        </article>
+        <article class="card">
+          <h3>防抖与熔断</h3>
+          <p>冷却、日上限、连续失败熔断，避免修复风暴与过度干预。</p>
+        </article>
+        <article class="card">
+          <h3>双 AI 后备</h3>
+          <p>支持 Codex / Claude Code 双 provider，适配不同团队工具偏好。</p>
+        </article>
+        <article class="card">
+          <h3>可运营可审计</h3>
+          <p>attempt 级日志、result.json、metrics.prom、通知路由，便于复盘和持续优化。</p>
+        </article>
+      </div>
+    </section>
+
+    <section>
+      <h2>解决的核心痛点</h2>
+      <div class="table">
+        <div class="row"><div class="cell head">业务痛点</div><div class="cell head">auto-fix-openclaw 的解法</div></div>
+        <div class="row"><div class="cell">连接经常中断，恢复慢</div><div class="cell">分钟级探测 + 自动修复 + 结果验证，缩短 MTTR。</div></div>
+        <div class="row"><div class="cell">升级后配置漂移导致不可用</div><div class="cell">版本变更自动 reconcile，回放本地 overlay 与配置覆盖。</div></div>
+        <div class="row"><div class="cell">多 coding 产品环境维护成本高</div><div class="cell">统一修复框架 + provider 后备策略，降低环境差异带来的排障复杂度。</div></div>
+        <div class="row"><div class="cell">夜间故障需要人工守护</div><div class="cell">自动巡检、通知告警、可审计留痕，减少人肉值守。</div></div>
+      </div>
+    </section>
+
+    <section class="foot">
+      <h3>一句话价值主张</h3>
+      <p>
+        如果你已经被“断联 + 升级 + 兼容性”反复消耗，auto-fix-openclaw 能把这件事从“靠人硬扛”变成“系统持续自愈”。
+      </p>
+    </section>
+  </main>
+</body>
+</html>

@@ -1,0 +1,53 @@
+<svg width="1200" height="520" viewBox="0 0 1200 520" fill="none" xmlns="http://www.w3.org/2000/svg">
+  <rect width="1200" height="520" rx="24" fill="#0F172A"/>
+  <text x="60" y="70" fill="#E2E8F0" font-size="36" font-family="Arial" font-weight="700">Auto-Fix OpenClaw 自愈流水线</text>
+
+  <g font-family="Arial" font-size="20" font-weight="600">
+    <rect x="60" y="120" width="180" height="120" rx="18" fill="#1E293B" stroke="#38BDF8"/>
+    <text x="92" y="170" fill="#BAE6FD">健康探测</text>
+    <text x="84" y="200" fill="#7DD3FC" font-size="16" font-weight="500">health + status</text>
+
+    <rect x="270" y="120" width="180" height="120" rx="18" fill="#1E293B" stroke="#22D3EE"/>
+    <text x="307" y="170" fill="#CCFBF1">版本检查</text>
+    <text x="300" y="200" fill="#67E8F9" font-size="16" font-weight="500">变更先 reconcile</text>
+
+    <rect x="480" y="120" width="180" height="120" rx="18" fill="#1E293B" stroke="#A78BFA"/>
+    <text x="506" y="170" fill="#DDD6FE">确定性修复</text>
+    <text x="510" y="200" fill="#C4B5FD" font-size="16" font-weight="500">restart / doctor</text>
+
+    <rect x="690" y="120" width="180" height="120" rx="18" fill="#1E293B" stroke="#F472B6"/>
+    <text x="734" y="170" fill="#FBCFE8">AI 兜底</text>
+    <text x="714" y="200" fill="#F9A8D4" font-size="16" font-weight="500">Codex / Claude</text>
+
+    <rect x="900" y="120" width="240" height="120" rx="18" fill="#1E293B" stroke="#34D399"/>
+    <text x="968" y="170" fill="#BBF7D0">验证 + 审计</text>
+    <text x="932" y="200" fill="#6EE7B7" font-size="16" font-weight="500">result.json / metrics / notify</text>
+  </g>
+
+  <g stroke="#93C5FD" stroke-width="4" stroke-linecap="round">
+    <path d="M240 180H260"/>
+    <path d="M450 180H470"/>
+    <path d="M660 180H680"/>
+    <path d="M870 180H890"/>
+  </g>
+
+  <g font-family="Arial" font-size="18" fill="#E2E8F0">
+    <rect x="60" y="300" width="340" height="160" rx="16" fill="#111827" stroke="#334155"/>
+    <text x="84" y="340" font-weight="700">为什么能稳定：</text>
+    <text x="84" y="374">• 冷却时间 + 日上限 + 熔断防抖</text>
+    <text x="84" y="404">• 单实例锁，避免并发修复风暴</text>
+    <text x="84" y="434">• 先确定性修复，再 AI 最小变更</text>
+
+    <rect x="430" y="300" width="320" height="160" rx="16" fill="#111827" stroke="#334155"/>
+    <text x="454" y="340" font-weight="700">为什么可运营：</text>
+    <text x="454" y="374">• 每次尝试完整留痕（attempt 目录）</text>
+    <text x="454" y="404">• 支持通知、巡检、快速回溯</text>
+    <text x="454" y="434">• 兼容版本升级后的自定义回放</text>
+
+    <rect x="780" y="300" width="360" height="160" rx="16" fill="#111827" stroke="#334155"/>
+    <text x="804" y="340" font-weight="700">为什么值得部署：</text>
+    <text x="804" y="374">• 减少夜间人工值守与重复排障</text>
+    <text x="804" y="404">• 降低升级窗口的不可预期断联</text>
+    <text x="804" y="434">• 把“修一次”变成“持续自愈”</text>
+  </g>
+</svg>

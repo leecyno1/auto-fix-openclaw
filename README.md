@@ -1,131 +1,91 @@
-# auto-fix-openclaw
+<p align="center">
+  <img src="./assets/logo-autofix-openclaw.svg" width="140" alt="auto-fix-openclaw logo" />
+</p>
 
-Production-grade self-heal framework for OpenClaw gateway.
+<h1 align="center">auto-fix-openclaw</h1>
 
-## What it does
+<p align="center">
+  Production-grade self-heal framework for OpenClaw gateway.<br/>
+  把“龙虾断联 + 升级回归 + 多环境适配”变成可持续自愈。
+</p>
 
-- Monitors gateway health continuously (`openclaw health --json`, `openclaw gateway status --json`)
-- Applies deterministic repair chain first (restart -> doctor -> service manager)
-- Replays local custom customizations after upgrades (`reconcile`)
-- Captures local code patches automatically (`baseline + overlay + patch-manifest.json`)
-- Supports AI-assisted repair backends:
-  - Codex (`codex` CLI)
-  - Claude Code (`claude` adapter)
-- Sends alert/recovery notifications through OpenClaw channels (Feishu, Telegram, Discord, etc.)
-- Emits Prometheus text metrics (`metrics.prom`)
+<p align="center">
+  <a href="./docs/project-intro.zh-CN.md">中文项目介绍</a> ·
+  <a href="./marketing/gate-home/index.html">Gate 图形化首页</a> ·
+  <a href="./docs/marketing/seo-playbook.zh-CN.md">SEO整套方案</a> ·
+  <a href="./docs/marketing/ad-plan.zh-CN.md">广告投放方案</a>
+</p>
 
-## Repository layout
+## 为什么会做这个项目
 
-- `bin/auto-fix-openclaw` - main CLI
-- `config/auto-fix-openclaw.env.example` - runtime config template
-- `scripts/reconcile-openclaw-custom.sh` - replay local customizations
-- `scripts/capture-openclaw-custom.sh` - capture local code changes
-- `scripts/providers/codex-repair.sh` - Codex repair adapter
-- `scripts/providers/claudecode-repair.sh` - Claude Code repair adapter
-- `deploy/systemd-user/*` - Linux user services/timer
-- `deploy/launchd/com.openclaw.autofix.plist` - macOS launchd agent
-- `install.sh` / `uninstall.sh` - install lifecycle scripts
+我们在真实使用场景里遇到过反复出现的问题：
 
-## Install
+- 龙虾（OpenClaw）在高压工作流中偶发断联，影响任务连续性
+- 升级后出现配置漂移/依赖变化，导致连接稳定性下降
+- 多 coding 产品和多环境并存，维护和排障成本持续上升
+
+`auto-fix-openclaw` 的目标不是“修一次”，而是搭建一套可持续运行的自愈系统。
+
+## 图形化介绍
+
+### 自愈流水线
+
+![auto-fix pipeline](./marketing/gate-home/assets/graphic-repair-pipeline.svg)
+
+### 痛点 -> 方案 -> 结果
+
+![pain solution map](./marketing/gate-home/assets/graphic-pain-solution-map.svg)
+
+## 核心能力
+
+- **持续探测**：`openclaw health --json` + `openclaw gateway status --json`
+- **确定性修复优先**：restart -> doctor -> service manager
+- **AI 兜底修复**：Codex / Claude Code 双 provider，支持 fallback
+- **升级回放**：版本变更可自动 reconcile，回放本地 customization
+- **防抖控制**：cooldown + daily cap + circuit breaker
+- **可观测性**：attempt 级审计、result.json、Prometheus metrics、通知路由
+
+## Quick Start
 
 ```bash
 cd auto-fix-openclaw
 ./install.sh --launchd --init-baseline   # macOS
 # or
 ./install.sh --systemd --init-baseline   # Linux
+
+auto-fix-openclaw status
+auto-fix-openclaw run-once --source bootstrap-verify
 ```
 
-Installed paths (default):
-
-- binary: `~/.local/bin/auto-fix-openclaw`
-- alias: `~/.local/bin/fix-my-claw`
-- home: `~/.local/share/auto-fix-openclaw`
-- env: `~/.config/openclaw/auto-fix-openclaw.env`
-- runtime artifacts: `~/.auto-fix-openclaw/`
-
-## Quick operations
+## 常用命令
 
 ```bash
-auto-fix-openclaw status
 auto-fix-openclaw run-once --source manual
 auto-fix-openclaw repair-now --provider codex
 auto-fix-openclaw repair-now --provider claudecode
-auto-fix-openclaw repair-now --provider codex --force
 auto-fix-openclaw check
 auto-fix-openclaw metrics
 auto-fix-openclaw doctor-dry-run
 auto-fix-openclaw reset-state
 ```
 
-## AI repair backends
+## 安全与兼容
 
-Set in env:
+- `AUTO_FIX_OPENCLAW_COMMAND_EXEC_MODE=safe|shell`
+  - `safe`：默认，argv 解析执行，降低命令注入风险
+  - `shell`：兼容旧配置（支持 shell 操作符）
+- `AUTO_FIX_OPENCLAW_REPAIR_ON_DEGRADED=0|1`
+  - `0`：默认，degraded 只记录不修复
+  - `1`：degraded 也进入修复链路
 
-```bash
-AUTO_FIX_OPENCLAW_REPAIR_PROVIDER=codex
-AUTO_FIX_OPENCLAW_REPAIR_PROVIDER_FALLBACK=claudecode
-```
+## 宣传与增长资产
 
-### Codex
+- Gate 首页（LOGO + 图形化介绍）：`marketing/gate-home/`
+- 中文项目介绍：`docs/project-intro.zh-CN.md`
+- 小红书文案包：`marketing/xiaohongshu/campaign-kit.zh-CN.md`
+- SEO整套方案：`docs/marketing/seo-playbook.zh-CN.md`
+- 广告投放方案：`docs/marketing/ad-plan.zh-CN.md`
 
-```bash
-AUTO_FIX_OPENCLAW_CODEX_BIN=/opt/homebrew/bin/codex
-AUTO_FIX_OPENCLAW_CODEX_MODEL=gpt-5-codex
-```
+## License
 
-### Claude Code
-
-```bash
-AUTO_FIX_OPENCLAW_CLAUDE_CODE_BIN=claude
-AUTO_FIX_OPENCLAW_CLAUDE_CODE_ARGS_TEMPLATE='exec --full-auto --cwd "{CWD}" --prompt-file "{PROMPT_FILE}" --model "{MODEL}"'
-```
-
-## Notifications (Feishu/Telegram/Discord)
-
-Use OpenClaw channel delivery via `openclaw message send`.
-
-```bash
-AUTO_FIX_OPENCLAW_NOTIFY_ENDPOINTS=feishu:oc_xxx,telegram:-1001234567890,discord:123456789012345678
-AUTO_FIX_OPENCLAW_NOTIFY_ON=failed,recovered,reconcile
-AUTO_FIX_OPENCLAW_NOTIFY_ACCOUNT=main
-```
-
-Endpoint format:
-
-- `channel:target`
-- `channel:target:account`
-
-## Custom patch capture and replay
-
-Initialize baseline per OpenClaw version:
-
-```bash
-~/.local/share/auto-fix-openclaw/scripts/capture-openclaw-custom.sh init-baseline
-```
-
-Capture later changes:
-
-```bash
-~/.local/share/auto-fix-openclaw/scripts/capture-openclaw-custom.sh capture
-```
-
-Outputs:
-
-- `~/.config/openclaw/overlay/` - replayable overlay files
-- `~/.config/openclaw/reconcile/patch-manifest.json` - change history
-- `~/.config/openclaw/reconcile/baselines/<version>.sha256` - per-version baseline
-
-## Safety model
-
-- Single lock prevents concurrent heal loops
-- Cooldown + daily cap + circuit breaker prevent flap storms
-- AI repair only after deterministic repair chain fails
-- AI write scope constrained by `AUTO_FIX_OPENCLAW_SAFE_PATHS`
-
-## Uninstall
-
-```bash
-./uninstall.sh
-# optional full cleanup
-./uninstall.sh --purge-state --purge-env
-```
+MIT
