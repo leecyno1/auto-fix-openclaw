@@ -6,46 +6,64 @@
 
 <p align="center">
   Production-grade self-heal framework for OpenClaw gateway.<br/>
-  把“龙虾断联 + 升级回归 + 多环境适配”变成可持续自愈。
+  面向“断联、升级回归、跨环境适配”的持续自愈系统。
 </p>
 
-<p align="center">
-  <a href="./docs/project-intro.zh-CN.md">中文项目介绍</a> ·
-  <a href="./marketing/gate-home/index.html">Gate 图形化首页</a> ·
-  <a href="./docs/marketing/seo-playbook.zh-CN.md">SEO整套方案</a> ·
-  <a href="./docs/marketing/ad-plan.zh-CN.md">广告投放方案</a>
-</p>
+## 项目定位
 
-## 为什么会做这个项目
+`auto-fix-openclaw` 用于持续守护 OpenClaw 网关可用性，目标是将“人工抢修”升级为“自动探测 + 自动修复 + 可审计复盘”的工程化流程。
 
-我们在真实使用场景里遇到过反复出现的问题：
+## 核心能力总览
 
-- 龙虾（OpenClaw）在高压工作流中偶发断联，影响任务连续性
-- 升级后出现配置漂移/依赖变化，导致连接稳定性下降
-- 多 coding 产品和多环境并存，维护和排障成本持续上升
+### 1) 连续健康探测
 
-`auto-fix-openclaw` 的目标不是“修一次”，而是搭建一套可持续运行的自愈系统。
+- 周期执行：
+  - `openclaw health --json`
+  - `openclaw gateway status --json`
+- 探测结果分层：
+  - `healthy`
+  - `degraded`（可达但健康不通过）
+  - `unhealthy`
 
-## 图形化介绍
+### 2) 分层修复链路（确定性优先）
 
-### 自愈流水线
+- 第一层：`openclaw gateway restart`
+- 第二层：`openclaw doctor --repair --non-interactive --yes`
+- 第三层：service manager 重启（`systemctl --user` / `launchctl`）
+- 第四层：AI provider 兜底（Codex / Claude Code，支持 fallback）
 
-![auto-fix pipeline](./marketing/gate-home/assets/graphic-repair-pipeline.svg)
+### 3) 升级回放（Reconcile）
 
-### 痛点 -> 方案 -> 结果
+- 版本变更可触发 reconcile
+- 支持 overlay + custom config 回放
+- 用于降低升级后连接漂移/回归风险
 
-![pain solution map](./marketing/gate-home/assets/graphic-pain-solution-map.svg)
+### 4) 捕获与审计
 
-## 核心能力
+- 每次尝试写入 `~/.auto-fix-openclaw/attempts/<timestamp>/`
+- 关键产物：
+  - `result.json`
+  - `error-summary.txt`
+  - `*.log` / `*.exit`
+- 输出 Prometheus 文本指标：`metrics.prom`
 
-- **持续探测**：`openclaw health --json` + `openclaw gateway status --json`
-- **确定性修复优先**：restart -> doctor -> service manager
-- **AI 兜底修复**：Codex / Claude Code 双 provider，支持 fallback
-- **升级回放**：版本变更可自动 reconcile，回放本地 customization
-- **防抖控制**：cooldown + daily cap + circuit breaker
-- **可观测性**：attempt 级审计、result.json、Prometheus metrics、通知路由
+### 5) 稳定性保护（反抖）
 
-## Quick Start
+- 冷却窗口（cooldown）
+- 每日修复上限（daily cap）
+- 连续失败熔断（circuit breaker）
+- 单实例锁（防并发修复）
+
+### 6) 安全与兼容模式
+
+- `AUTO_FIX_OPENCLAW_COMMAND_EXEC_MODE=safe|shell`
+  - `safe`（默认）：argv 解析执行，降低注入风险
+  - `shell`：兼容历史 shell 语法配置
+- `AUTO_FIX_OPENCLAW_REPAIR_ON_DEGRADED=0|1`
+  - `0`：degraded 默认记录不修复
+  - `1`：degraded 进入修复链路
+
+## 快速开始
 
 ```bash
 cd auto-fix-openclaw
@@ -60,6 +78,7 @@ auto-fix-openclaw run-once --source bootstrap-verify
 ## 常用命令
 
 ```bash
+auto-fix-openclaw status
 auto-fix-openclaw run-once --source manual
 auto-fix-openclaw repair-now --provider codex
 auto-fix-openclaw repair-now --provider claudecode
@@ -69,22 +88,24 @@ auto-fix-openclaw doctor-dry-run
 auto-fix-openclaw reset-state
 ```
 
-## 安全与兼容
+## 文档索引（功能与运维）
 
-- `AUTO_FIX_OPENCLAW_COMMAND_EXEC_MODE=safe|shell`
-  - `safe`：默认，argv 解析执行，降低命令注入风险
-  - `shell`：兼容旧配置（支持 shell 操作符）
-- `AUTO_FIX_OPENCLAW_REPAIR_ON_DEGRADED=0|1`
-  - `0`：默认，degraded 只记录不修复
-  - `1`：degraded 也进入修复链路
+- 完整功能说明：`docs/feature-spec.zh-CN.md`
+- 架构说明：`docs/architecture.md`
+- 配置参考：`docs/config-reference.md`
+- 运维手册：`docs/runbook.md`
+- 迁移说明：`docs/migration-from-fix-my-claw.md`
 
-## 宣传与增长资产
+## 目录结构
 
-- Gate 首页（LOGO + 图形化介绍）：`marketing/gate-home/`
-- 中文项目介绍：`docs/project-intro.zh-CN.md`
-- 小红书文案包：`marketing/xiaohongshu/campaign-kit.zh-CN.md`
-- SEO整套方案：`docs/marketing/seo-playbook.zh-CN.md`
-- 广告投放方案：`docs/marketing/ad-plan.zh-CN.md`
+- `bin/auto-fix-openclaw`：主 CLI
+- `config/auto-fix-openclaw.env.example`：配置模板
+- `scripts/reconcile-openclaw-custom.sh`：升级回放脚本
+- `scripts/capture-openclaw-custom.sh`：补丁捕获脚本
+- `scripts/providers/*.sh`：AI provider 适配脚本
+- `deploy/systemd-user/*`：Linux 用户态服务
+- `deploy/launchd/*`：macOS launchd 配置
+- `tests/*`：回归与验证脚本
 
 ## License
 
